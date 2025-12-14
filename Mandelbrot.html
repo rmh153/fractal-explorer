@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Perfected GPU Mandelbrot & Julia (4x AA + 4K Save)</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #000;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #eee;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            cursor: move;
+        }
+
+        #controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 2, 20, 0.85);
+            padding: 15px;
+            border-radius: 8px;
+            width: 300px;
+            backdrop-filter: blur(5px);
+            border: 1px solid rgba(100, 150, 255, 0.2);
+            user-select: none;
+            z-index: 10;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+
+        h1 {
+            margin: 0 0 10px 0;
+            font-size: 1.2rem;
+            color: #fff;
+            border-bottom: 1px solid #555;
+            padding-bottom: 5px;
+        }
+
+        .control-group {
+            margin-bottom: 12px;
+        }
+
+        label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.9rem;
+            margin-bottom: 4px;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            cursor: pointer;
+        }
+
+        .row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        input[type="checkbox"] {
+            cursor: pointer;
+            width: 16px;
+            height: 16px;
+        }
+
+        .value-display {
+            color: #4db8ff;
+            font-weight: bold;
+            font-size: 0.85rem;
+            font-family: monospace;
+        }
+
+        .instructions {
+            margin-top: 15px;
+            font-size: 0.8rem;
+            color: #aaa;
+            font-style: italic;
+            border-top: 1px solid #555;
+            padding-top: 10px;
+            line-height: 1.4;
+        }
+
+        .julia-controls {
+            border-left: 2px solid #4db8ff;
+            padding-left: 10px;
+            margin-left: -10px;
+            opacity: 0.5;
+            transition: opacity 0.3s;
+            pointer-events: none;
+        }
+        
+        .julia-active {
+            opacity: 1.0;
+            pointer-events: auto;
+        }
+
+        .sub-group {
+            background: rgba(255,255,255,0.05);
+            padding: 8px;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+
+        .badge {
+            display: inline-block;
+            background: #4db8ff;
+            color: #000;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-weight: bold;
+            vertical-align: middle;
+            margin-left: 5px;
+        }
+        
+        button#saveBtn:hover {
+            background: #7dcfff !important;
+        }
+        button#saveBtn:active {
+            background: #2a96d9 !important;
+            transform: translateY(1px);
+        }
+    </style>
+</head>
+<body>
+
+<canvas id="glcanvas"></canvas>
+
+<div id="controls">
+    <h1>Fractal Explorer <span class="badge">RGSS AA</span></h1>
+    <div style="font-size: 0.75rem; color: #4db8ff; margin-bottom: 10px;">High Precision Mode (Emulated Double)</div>
+
+    <div class="control-group">
+        <label>
+            Iterations (Depth)
+            <span id="depthVal" class="value-display">200</span>
+        </label>
+        <input type="range" id="depth" min="10" max="3000" value="200">
+    </div>
+
+    <div class="control-group">
+        <label>
+            Color Delta (Freq)
+            <span id="deltaVal" class="value-display">5</span>
+        </label>
+        <input type="range" id="delta" min="0.1" max="50" step="0.1" value="5">
+    </div>
+
+    <div class="control-group">
+        <label>
+            Color Cycle Speed
+            <span id="speedVal" class="value-display">1.0</span>
+        </label>
+        <input type="range" id="animSpeed" min="0.0" max="10.0" step="0.1" value="1.0">
+    </div>
+
+    <div id="juliaContainer" class="julia-controls">
+        <div style="color: #4db8ff; font-weight: bold; margin-bottom:5px; font-size:0.9rem;">Julia Controls</div>
+        
+        <div class="sub-group">
+            <div class="control-group">
+                <label>
+                    Morph Angle
+                    <span id="juliaAngleVal" class="value-display">0°</span>
+                </label>
+                <input type="range" id="juliaAngle" min="0" max="360" step="0.1" value="0">
+            </div>
+            <div style="font-size:0.7rem; color:#888;">Rotates around origin preserving radius.</div>
+        </div>
+
+        <div class="control-group">
+            <label>
+                Re (X)
+                <span id="jReVal" class="value-display">0.0000</span>
+            </label>
+            <input type="range" id="juliaRe" min="-2.0" max="2.0" step="0.0001" value="0">
+        </div>
+
+        <div class="control-group">
+            <label>
+                Im (Y)
+                <span id="jImVal" class="value-display">0.0000</span>
+            </label>
+            <input type="range" id="juliaIm" min="-2.0" max="2.0" step="0.0001" value="0">
+        </div>
+    </div>
+
+    <div class="control-group">
+        <label>
+            Background Hue
+            <span id="bgHueVal" class="value-display">240</span>
+        </label>
+        <input type="range" id="bgHue" min="0" max="360" step="1" value="240">
+    </div>
+
+    <div class="control-group">
+        <label>
+            Background Value
+            <span id="bgValVal" class="value-display">0.1</span>
+        </label>
+        <input type="range" id="bgVal" min="0" max="1" step="0.01" value="0.1">
+    </div>
+
+    <div class="control-group row">
+        <input type="checkbox" id="juliaToggle">
+        <label for="juliaToggle" style="margin:0; flex-grow:1; cursor:pointer; color: #4db8ff; font-weight:bold;">Show Julia Set</label>
+    </div>
+
+    <div class="control-group row">
+        <input type="checkbox" id="animateToggle">
+        <label for="animateToggle" style="margin:0; flex-grow:1; cursor:pointer;">Animate Colors</label>
+    </div>
+    
+    <div class="control-group row" style="margin-top: 15px; border-top: 1px solid #555; padding-top: 10px;">
+        <button id="saveBtn" style="width:100%; padding: 10px; background: #4db8ff; color: #002; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-family: inherit; font-size: 0.9rem; transition: background 0.2s;">
+            📸 Save 4K Wallpaper
+        </button>
+    </div>
+
+    <div class="instructions">
+        • <strong>Scroll Wheel</strong> to Zoom In/Out<br>
+        • <strong>Drag</strong> to Pan<br>
+        • <strong>Morph Angle</strong> spins the shape preserving your starting radius.<br>
+        • <strong>Note:</strong> 4x Anti-Aliasing is enabled.
+    </div>
+</div>
+
+<script id="vs" type="x-shader/x-vertex">
+    attribute vec2 position;
+    void main() {
+        gl_Position = vec4(position, 0.0, 1.0);
+    }
+</script>
+
+<script id="fs" type="x-shader/x-fragment">
+    precision highp float;
+
+    uniform vec2 u_resolution;
+    uniform vec2 u_rc; 
+    uniform vec2 u_ic; 
+    uniform vec2 u_zoom; 
+    
+    uniform int u_maxIterations;
+    uniform float u_colorDelta;
+    uniform bool u_isJulia;
+    uniform vec4 u_juliaC_ds; 
+    uniform float u_time; 
+    
+    uniform float u_bgHue;
+    uniform float u_bgVal;
+
+    // --- Emulated Double Precision Arithmetic ---
+    vec2 ds_add(vec2 dsa, vec2 dsb) {
+        vec2 dsc;
+        float t1, t2, e;
+        t1 = dsa.x + dsb.x;
+        e = t1 - dsa.x;
+        t2 = ((dsb.x - e) + (dsa.x - (t1 - e))) + dsa.y + dsb.y;
+        dsc.x = t1;
+        dsc.y = t2;
+        return dsc;
+    }
+
+    vec2 ds_sub(vec2 dsa, vec2 dsb) {
+        return ds_add(dsa, vec2(-dsb.x, -dsb.y));
+    }
+
+    vec2 ds_mul(vec2 dsa, vec2 dsb) {
+        vec2 dsc;
+        float c11, c21, c2, e, t1, t2;
+        float a1, a2, b1, b2, cona, conb;
+        float split = 4097.0;
+
+        cona = dsa.x * split;
+        a1 = cona - (cona - dsa.x);
+        a2 = dsa.x - a1;
+
+        conb = dsb.x * split;
+        b1 = conb - (conb - dsb.x);
+        b2 = dsb.x - b1;
+
+        c11 = dsa.x * dsb.x;
+        c21 = a1 * b1 - c11;
+        c21 += a1 * b2;
+        c21 += a2 * b1;
+        c21 += a2 * b2;
+
+        c2 = dsa.x * dsb.y + dsa.y * dsb.x;
+
+        t1 = c11 + c2;
+        e = t1 - c11;
+        t2 = dsa.y * dsb.y + ((c2 - e) + (c11 - (t1 - e))) + c21;
+        
+        dsc.x = t1;
+        dsc.y = t2;
+        return dsc;
+    }
+
+    vec3 hsv2rgb(vec3 c) {
+        vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+        vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+        return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+    }
+
+    // --- Core Fractal Calculation ---
+    vec3 computeColor(vec2 z_r_in, vec2 z_i_in) {
+        vec2 z_r, z_i, c_r, c_i;
+
+        if (u_isJulia) {
+            z_r = z_r_in;
+            z_i = z_i_in;
+            c_r = u_juliaC_ds.xy; 
+            c_i = u_juliaC_ds.zw;
+        } else {
+            z_r = vec2(0.0, 0.0);
+            z_i = vec2(0.0, 0.0);
+            c_r = z_r_in;
+            c_i = z_i_in;
+        }
+
+        int iter = -1;
+        const int MAX_LOOP = 3000;
+
+        for (int i = 0; i < MAX_LOOP; i++) {
+            if (i >= u_maxIterations) break;
+            
+            vec2 x2 = ds_mul(z_r, z_r);
+            vec2 y2 = ds_mul(z_i, z_i);
+            
+            if ((x2.x + y2.x) > 4.0) {
+                iter = i;
+                break;
+            }
+
+            vec2 xy = ds_mul(z_r, z_i);
+            vec2 twoxy = ds_add(xy, xy);
+            
+            vec2 diff = ds_sub(x2, y2);
+            z_r = ds_add(diff, c_r);
+            z_i = ds_add(twoxy, c_i);
+        }
+
+        if (iter == -1) {
+            return hsv2rgb(vec3(u_bgHue / 360.0, 1.0, u_bgVal));
+        } else {
+            float hue = mod(float(iter) * u_colorDelta + u_time * 20.0, 360.0) / 360.0;
+            return hsv2rgb(vec3(hue, 0.8, 1.0));
+        }
+    }
+
+    void main() {
+        // --- 4x Rotated Grid Super Sampling (RGSS) ---
+        // 1. Calculate pixel scale in complex plane
+        float oneOverResY = 1.0 / u_resolution.y;
+        vec2 pixelScale = ds_mul(u_zoom, vec2(oneOverResY, 0.0));
+        
+        // 2. Base Center coordinate
+        vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / u_resolution.y;
+        vec2 uv_x = vec2(uv.x, 0.0);
+        vec2 uv_y = vec2(uv.y, 0.0);
+        vec2 center_r = ds_add(u_rc, ds_mul(uv_x, u_zoom));
+        vec2 center_i = ds_add(u_ic, ds_mul(uv_y, u_zoom));
+
+        // 3. Define RGSS offsets relative to pixel size
+        // (x, y) pairs for 4 samples rotated to avoid alignment
+        vec2 offsets[4];
+        offsets[0] = vec2( 0.125,  0.375);
+        offsets[1] = vec2(-0.125, -0.375);
+        offsets[2] = vec2( 0.375, -0.125);
+        offsets[3] = vec2(-0.375,  0.125);
+
+        vec3 totalColor = vec3(0.0);
+
+        for (int i = 0; i < 4; i++) {
+            // Apply offset * pixelScale
+            vec2 shift_r = ds_mul(pixelScale, vec2(offsets[i].x, 0.0));
+            vec2 shift_i = ds_mul(pixelScale, vec2(offsets[i].y, 0.0));
+
+            vec2 sample_r = ds_add(center_r, shift_r);
+            vec2 sample_i = ds_add(center_i, shift_i);
+
+            totalColor += computeColor(sample_r, sample_i);
+        }
+        
+        gl_FragColor = vec4(totalColor / 4.0, 1.0);
+    }
+</script>
+
+<script>
+    const canvas = document.getElementById('glcanvas');
+    const gl = canvas.getContext('webgl', { alpha: false, antialias: false, preserveDrawingBuffer: true }); 
+    // Added preserveDrawingBuffer: true for reliable Blob extraction
+
+    if (!gl) {
+        alert('WebGL not supported');
+    }
+
+    function splitDouble(value) {
+        const high = Math.fround(value);
+        const low = value - high;
+        return [high, low];
+    }
+
+    let state = {
+        zoom: 2.5, 
+        offset: { x: -0.5, y: 0.0 },
+        maxIterations: 200, 
+        colorDelta: 5.0,
+        isJulia: false,
+        juliaC: { x: -0.8, y: 0.156 },
+        juliaRadius: 0.8038, 
+        animate: false,
+        speed: 1.0, 
+        accumulatedTime: 0, 
+        lastFrameTime: Date.now(),
+        bgHue: 240,
+        bgVal: 0.1
+    };
+
+    const ui = {
+        depth: document.getElementById('depth'),
+        depthVal: document.getElementById('depthVal'),
+        delta: document.getElementById('delta'),
+        deltaVal: document.getElementById('deltaVal'),
+        speed: document.getElementById('animSpeed'),
+        speedVal: document.getElementById('speedVal'),
+        bgHue: document.getElementById('bgHue'),
+        bgHueVal: document.getElementById('bgHueVal'),
+        bgVal: document.getElementById('bgVal'),
+        bgValVal: document.getElementById('bgValVal'),
+        julia: document.getElementById('juliaToggle'),
+        animate: document.getElementById('animateToggle'),
+        
+        juliaContainer: document.getElementById('juliaContainer'),
+        juliaAngle: document.getElementById('juliaAngle'),
+        juliaAngleVal: document.getElementById('juliaAngleVal'),
+        juliaRe: document.getElementById('juliaRe'),
+        juliaIm: document.getElementById('juliaIm'),
+        jReVal: document.getElementById('jReVal'),
+        jImVal: document.getElementById('jImVal')
+    };
+
+    // Initialize UI
+    ui.depth.value = state.maxIterations;
+    ui.depthVal.innerText = state.maxIterations;
+    ui.delta.value = state.colorDelta;
+    ui.deltaVal.innerText = state.colorDelta;
+    ui.speed.value = state.speed;
+    ui.speedVal.innerText = state.speed.toFixed(1);
+    ui.bgHue.value = state.bgHue;
+    ui.bgHueVal.innerText = state.bgHue;
+    ui.bgVal.value = state.bgVal;
+    ui.bgValVal.innerText = state.bgVal;
+    ui.julia.checked = state.isJulia;
+    ui.animate.checked = state.animate;
+    
+    // Shader Compilation
+    function createShader(gl, type, source) {
+        const shader = gl.createShader(type);
+        gl.shaderSource(shader, source);
+        gl.compileShader(shader);
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+            console.error(gl.getShaderInfoLog(shader));
+            return null;
+        }
+        return shader;
+    }
+
+    const vsSource = document.getElementById('vs').text;
+    const fsSource = document.getElementById('fs').text;
+    const program = gl.createProgram();
+    gl.attachShader(program, createShader(gl, gl.VERTEX_SHADER, vsSource));
+    gl.attachShader(program, createShader(gl, gl.FRAGMENT_SHADER, fsSource));
+    gl.linkProgram(program);
+
+    const positionBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+    const posLoc = gl.getAttribLocation(program, 'position');
+    gl.enableVertexAttribArray(posLoc);
+    gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+
+    const uLocs = {
+        resolution: gl.getUniformLocation(program, 'u_resolution'),
+        rc: gl.getUniformLocation(program, 'u_rc'),
+        ic: gl.getUniformLocation(program, 'u_ic'),
+        zoom: gl.getUniformLocation(program, 'u_zoom'),
+        maxIterations: gl.getUniformLocation(program, 'u_maxIterations'),
+        colorDelta: gl.getUniformLocation(program, 'u_colorDelta'),
+        isJulia: gl.getUniformLocation(program, 'u_isJulia'),
+        juliaC_ds: gl.getUniformLocation(program, 'u_juliaC_ds'),
+        time: gl.getUniformLocation(program, 'u_time'),
+        bgHue: gl.getUniformLocation(program, 'u_bgHue'),
+        bgVal: gl.getUniformLocation(program, 'u_bgVal')
+    };
+
+    // Generic Listeners
+    ui.depth.addEventListener('input', (e) => { state.maxIterations = parseInt(e.target.value); ui.depthVal.innerText = state.maxIterations; });
+    ui.delta.addEventListener('input', (e) => { state.colorDelta = parseFloat(e.target.value); ui.deltaVal.innerText = state.colorDelta; });
+    ui.speed.addEventListener('input', (e) => { state.speed = parseFloat(e.target.value); ui.speedVal.innerText = state.speed.toFixed(1); });
+    ui.bgHue.addEventListener('input', (e) => { state.bgHue = parseFloat(e.target.value); ui.bgHueVal.innerText = state.bgHue; });
+    ui.bgVal.addEventListener('input', (e) => { state.bgVal = parseFloat(e.target.value); ui.bgValVal.innerText = state.bgVal; });
+    
+    // --- JULIA SYNC LOGIC ---
+
+    function updateJuliaUI() {
+        ui.juliaRe.value = state.juliaC.x;
+        ui.juliaIm.value = state.juliaC.y;
+        ui.jReVal.innerText = state.juliaC.x.toFixed(4);
+        ui.jImVal.innerText = state.juliaC.y.toFixed(4);
+    }
+
+    function syncMorphToState() {
+        // Recalculate radius from current C
+        state.juliaRadius = Math.sqrt(state.juliaC.x * state.juliaC.x + state.juliaC.y * state.juliaC.y);
+        
+        // Calculate Angle
+        let angle = Math.atan2(state.juliaC.y, state.juliaC.x) * 180 / Math.PI;
+        if (angle < 0) angle += 360; 
+        
+        // Update slider visual only
+        ui.juliaAngle.value = angle;
+        ui.juliaAngleVal.innerText = Math.floor(angle) + "°";
+    }
+
+    // 1. Morph Slider
+    ui.juliaAngle.addEventListener('input', (e) => {
+        const angle = parseFloat(e.target.value);
+        ui.juliaAngleVal.innerText = Math.floor(angle) + "°";
+        const r = state.juliaRadius;
+        const rad = angle * Math.PI / 180.0;
+        state.juliaC.x = r * Math.cos(rad);
+        state.juliaC.y = r * Math.sin(rad);
+        updateJuliaUI();
+    });
+
+    // 2. Manual Sliders (Re-sync radius if changed manually)
+    ui.juliaRe.addEventListener('input', (e) => {
+        state.juliaC.x = parseFloat(e.target.value);
+        ui.jReVal.innerText = state.juliaC.x.toFixed(4);
+        syncMorphToState(); 
+    });
+    
+    ui.juliaIm.addEventListener('input', (e) => {
+        state.juliaC.y = parseFloat(e.target.value);
+        ui.jImVal.innerText = state.juliaC.y.toFixed(4);
+        syncMorphToState();
+    });
+
+    // 3. Toggle Logic (REVERTED: Does not overwrite Julia C with Mandelbrot position)
+    ui.julia.addEventListener('change', (e) => { 
+        state.isJulia = e.target.checked; 
+        if (state.isJulia) {
+            ui.juliaContainer.classList.add('julia-active');
+            
+            // NOTE: We no longer overwrite state.juliaC here.
+            // It uses whatever was previously set in the sliders.
+
+            // Reset View for Julia exploration
+            state.offset = { x: 0.0, y: 0.0 };
+            state.zoom = 3.5; 
+        } else {
+            ui.juliaContainer.classList.remove('julia-active');
+            state.offset = { x: -0.5, y: 0.0 };
+            state.zoom = 2.5;
+        }
+    });
+
+    ui.animate.addEventListener('change', (e) => { 
+        state.animate = e.target.checked; 
+    });
+
+    // Mouse Controls
+    let drag = { active: false, startX: 0, startY: 0, initialOffset: {x:0, y:0}, hasMoved: false };
+
+    canvas.addEventListener('mousedown', (e) => {
+        if (e.button === 0) {
+            drag.active = true;
+            drag.startX = e.clientX;
+            drag.startY = e.clientY;
+            drag.initialOffset = { ...state.offset };
+            drag.hasMoved = false;
+            canvas.style.cursor = 'grabbing';
+        }
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+        if (!drag.active) return;
+        const dx = e.clientX - drag.startX;
+        const dy = e.clientY - drag.startY;
+        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) drag.hasMoved = true;
+
+        if (drag.hasMoved) {
+            const unitsPerPixel = state.zoom / canvas.height;
+            state.offset.x = drag.initialOffset.x - dx * unitsPerPixel;
+            state.offset.y = drag.initialOffset.y + dy * unitsPerPixel; 
+        }
+    });
+
+    canvas.addEventListener('mouseup', () => { drag.active = false; canvas.style.cursor = 'move'; });
+    canvas.addEventListener('mouseleave', () => { drag.active = false; canvas.style.cursor = 'move'; });
+
+    canvas.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        const glY = rect.height - mouseY;
+        const uvX = (mouseX - rect.width / 2) / rect.height;
+        const uvY = (glY - rect.height / 2) / rect.height;
+
+        const scaleFactor = e.deltaY < 0 ? 0.9 : 1.1;
+        const oldZoom = state.zoom;
+        const newZoom = oldZoom * scaleFactor;
+
+        if (newZoom < 1e-14 || newZoom > 10.0) return;
+
+        state.offset.x += uvX * (oldZoom - newZoom);
+        state.offset.y += uvY * (oldZoom - newZoom);
+        state.zoom = newZoom;
+    }, { passive: false });
+
+    // Initial Sync
+    syncMorphToState();
+    updateJuliaUI();
+
+    let isSnapshotting = false;
+
+    function render() {
+        if (!isSnapshotting && (canvas.width !== window.innerWidth || canvas.height !== window.innerHeight)) {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            gl.viewport(0, 0, canvas.width, canvas.height);
+        }
+
+        gl.useProgram(program);
+
+        const now = Date.now();
+        const dt = (now - state.lastFrameTime) * 0.001; 
+        state.lastFrameTime = now;
+
+        if (state.animate) {
+            state.accumulatedTime += dt * state.speed;
+        }
+
+        const jC_r = splitDouble(state.juliaC.x);
+        const jC_i = splitDouble(state.juliaC.y);
+        const rc = splitDouble(state.offset.x);
+        const ic = splitDouble(state.offset.y);
+        const zDouble = splitDouble(state.zoom);
+
+        gl.uniform2f(uLocs.resolution, canvas.width, canvas.height);
+        gl.uniform2f(uLocs.rc, rc[0], rc[1]);
+        gl.uniform2f(uLocs.ic, ic[0], ic[1]);
+        gl.uniform2f(uLocs.zoom, zDouble[0], zDouble[1]);
+        gl.uniform1i(uLocs.maxIterations, state.maxIterations);
+        gl.uniform1f(uLocs.colorDelta, state.colorDelta);
+        gl.uniform1i(uLocs.isJulia, state.isJulia ? 1 : 0);
+        gl.uniform4f(uLocs.juliaC_ds, jC_r[0], jC_r[1], jC_i[0], jC_i[1]); 
+        gl.uniform1f(uLocs.time, state.accumulatedTime);
+        gl.uniform1f(uLocs.bgHue, state.bgHue);
+        gl.uniform1f(uLocs.bgVal, state.bgVal);
+
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        
+        if (!isSnapshotting) {
+            requestAnimationFrame(render);
+        }
+    }
+
+    render();
+
+    // --- SAVE LOGIC ---
+    const saveBtn = document.getElementById('saveBtn');
+
+    saveBtn.addEventListener('click', () => {
+        isSnapshotting = true;
+        
+        const originalWidth = canvas.width;
+        const originalHeight = canvas.height;
+        const originalAnimate = state.animate;
+
+        // 4K Resolution
+        canvas.width = 3840;
+        canvas.height = 2160;
+        gl.viewport(0, 0, canvas.width, canvas.height);
+
+        // Pause animation to prevent drift during capture
+        state.animate = false;
+        
+        // Render 4K Frame
+        render(); 
+
+        canvas.toBlob((blob) => {
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            
+            const type = state.isJulia ? 'Julia' : 'Mandelbrot';
+            const coords = state.isJulia 
+                ? `Re${state.juliaC.x.toFixed(3)}_Im${state.juliaC.y.toFixed(3)}`
+                : `Re${state.offset.x.toFixed(6)}_Im${state.offset.y.toFixed(6)}`;
+                
+            link.download = `${type}_Zoom${state.zoom.toExponential(2)}_${coords}.png`;
+            link.href = url;
+            link.click();
+            
+            URL.revokeObjectURL(url);
+            
+            // Restore
+            canvas.width = originalWidth;
+            canvas.height = originalHeight;
+            gl.viewport(0, 0, canvas.width, canvas.height);
+            state.animate = originalAnimate;
+            
+            isSnapshotting = false;
+            requestAnimationFrame(render); // Resume loop
+            
+        }, 'image/png', 1.0);
+    });
+
+</script>
+</body>
+</html>
